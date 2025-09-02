@@ -125,7 +125,7 @@ const selectAll = (day: WeekDay) => {
 };
 
 const clearSelection = () => {
-  localDaysCopy.value = props.days;
+  localDaysCopy.value = structuredClone(props.days);
 };
 
 const saveChanges = () => {
