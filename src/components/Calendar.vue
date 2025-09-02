@@ -9,12 +9,12 @@
             <th class="border text-xs px-2 py-1 text-gray-600">All Day</th>
 
             <th
-              v-for="hoursSet in 8"
-              :key="hoursSet"
+              v-for="hours in 8"
+              :key="hours"
               class="border text-xs px-2 py-1 text-gray-600 text-center"
               :colspan="3"
             >
-              {{ String((hoursSet - 1) * 3).padStart(2, "0") }}:00
+              {{ String((hours - 1) * 3).padStart(2, "0") }}:00
             </th>
           </tr>
         </thead>
@@ -25,16 +25,25 @@
             </td>
 
             <td
-              class="border cursor-pointer w-12 text-center bg-gray-400 text-sm font-medium"
-            ></td>
+              class="border cursor-pointer w-8 text-center bg-gray-400 text-sm font-medium"
+              @click="selectAll(day)"
+            >
+              <font-awesome-icon
+                v-if="isAllDay(events)"
+                class="text-white text-xl"
+                :icon="['fas', 'circle-check']"
+              />
+            </td>
 
-            <template v-for="hoursSet in 8" :key="hoursSet">
-              <td
-                v-for="hour in 3"
-                :key="hour"
-                class="border w-4 h-8 cursor-pointer"
-              ></td>
-            </template>
+            <td
+              v-for="hour in 24"
+              :key="hour"
+              :class="[
+                'border w-4 h-8 cursor-pointer hover:bg-gray-300',
+                isSelected(events, hour * 60) ? 'bg-gray-500' : '',
+              ]"
+              @click="selectCell(day, (hour - 1) * 60)"
+            ></td>
           </tr>
         </tbody>
       </table>
@@ -58,11 +67,17 @@
 </template>
 
 <script setup lang="ts">
-import type { WeekSchedule } from "@/types/calendar";
+import type { Interval, WeekDay, WeekSchedule } from "@/types/calendar";
 import { ref } from "vue";
 
 interface Props {
   days: WeekSchedule;
+}
+
+interface SelectedInterval {
+  day: WeekDay;
+  start?: number;
+  end?: number;
 }
 
 const props = defineProps<Props>();
@@ -70,7 +85,44 @@ const emit = defineEmits<{
   (e: "update", days: WeekSchedule): void;
 }>();
 
-const localDaysCopy = ref<WeekSchedule>(props.days);
+const localDaysCopy = ref<WeekSchedule>(structuredClone(props.days));
+const selectedInterval = ref<SelectedInterval | null>(null);
+
+const isSelected = (events: Interval[], time: number) => {
+  return events.some((event) => time > event.bt && time - 2 < event.et);
+};
+
+const isAllDay = (events: Interval[]) => {
+  return (
+    events.some((event) => event.bt === 0) &&
+    events.some((event) => event.et === 1439)
+  );
+};
+
+const selectCell = (day: WeekDay, time: number) => {
+  if (!selectedInterval.value?.start && selectedInterval.value?.start !== 0) {
+    selectedInterval.value = { day, start: time };
+  } else {
+    if (selectedInterval.value.day === day) {
+      selectedInterval.value.end = time + 59;
+
+      const newInterval = {
+        bt: selectedInterval.value.start,
+        et: selectedInterval.value.end,
+      };
+
+      localDaysCopy.value[day].push(newInterval);
+    }
+
+    selectedInterval.value = null;
+  }
+};
+
+const selectAll = (day: WeekDay) => {
+  localDaysCopy.value[day].length
+    ? (localDaysCopy.value[day] = [])
+    : localDaysCopy.value[day].push({ bt: 0, et: 1439 });
+};
 
 const clearSelection = () => {
   localDaysCopy.value = props.days;
