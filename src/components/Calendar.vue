@@ -43,6 +43,8 @@
                 isSelected(events, hour * 60) ? 'bg-gray-500' : '',
               ]"
               @click="selectCell(day, (hour - 1) * 60)"
+              @mousedown="selectCell(day, (hour - 1) * 60)"
+              @mouseup="selectCell(day, (hour - 1) * 60)"
             ></td>
           </tr>
         </tbody>
@@ -67,6 +69,7 @@
 </template>
 
 <script setup lang="ts">
+import { ALL_DAY } from "@/constants";
 import type { Interval, WeekDay, WeekSchedule } from "@/types/calendar";
 import { ref } from "vue";
 
@@ -93,13 +96,25 @@ const isSelected = (events: Interval[], time: number) => {
 };
 
 const isAllDay = (events: Interval[]) => {
-  return (
-    events.some((event) => event.bt === 0) &&
-    events.some((event) => event.et === 1439)
-  );
+  const sorted = [...events].sort((a, b) => a.bt - b.bt);
+
+  let lastEnd = -1;
+
+  for (const event of sorted) {
+    if (event.bt > lastEnd + 1) {
+      return false;
+    }
+    lastEnd = Math.max(lastEnd, event.et);
+  }
+
+  return lastEnd >= ALL_DAY;
 };
 
 const selectCell = (day: WeekDay, time: number) => {
+  if (selectedInterval.value?.day && selectedInterval.value.day !== day) {
+    return;
+  }
+
   if (!selectedInterval.value?.start && selectedInterval.value?.start !== 0) {
     selectedInterval.value = { day, start: time };
   } else {
@@ -107,10 +122,9 @@ const selectCell = (day: WeekDay, time: number) => {
       selectedInterval.value.end = time + 59;
 
       const newInterval = {
-        bt: selectedInterval.value.start,
-        et: selectedInterval.value.end,
+        bt: Math.min(selectedInterval.value.start, selectedInterval.value.end),
+        et: Math.max(selectedInterval.value.start, selectedInterval.value.end),
       };
-
       localDaysCopy.value[day].push(newInterval);
     }
 
@@ -121,7 +135,7 @@ const selectCell = (day: WeekDay, time: number) => {
 const selectAll = (day: WeekDay) => {
   localDaysCopy.value[day].length
     ? (localDaysCopy.value[day] = [])
-    : localDaysCopy.value[day].push({ bt: 0, et: 1439 });
+    : localDaysCopy.value[day].push({ bt: 0, et: ALL_DAY });
 };
 
 const clearSelection = () => {
