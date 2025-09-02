@@ -1,17 +1,17 @@
 <template>
-  <div class="p-4">
-    <h2 class="text-lg font-semibold mb-4">Set Schedule</h2>
+  <div>
     <div class="overflow-x-auto">
-      <table class="border-collapse">
-        <thead>
+      <table class="w-full border-collapse text-xs">
+        <thead class="bg-gray-50">
           <tr>
-            <th class="w-12"></th>
-            <th class="border text-xs px-2 py-1 text-gray-600">All Day</th>
-
+            <th class="w-14"></th>
+            <th class="border border-gray-200 px-2 py-1 text-gray-600">
+              All Day
+            </th>
             <th
               v-for="hours in 8"
               :key="hours"
-              class="border text-xs px-2 py-1 text-gray-600 text-center"
+              class="border border-gray-200 px-2 py-1 text-gray-600 text-center font-medium"
               :colspan="3"
             >
               {{ String((hours - 1) * 3).padStart(2, "0") }}:00
@@ -19,28 +19,33 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(events, day) in localDaysCopy" :key="day">
-            <td class="border text-center bg-gray-100 text-sm font-medium">
+          <tr
+            v-for="(events, day) in localDaysCopy"
+            :key="day"
+            class="hover:bg-gray-50"
+          >
+            <td
+              class="border border-gray-200 text-center bg-gray-100 text-sm font-semibold"
+            >
               {{ day.toUpperCase() }}
             </td>
-
             <td
-              class="border cursor-pointer w-8 text-center bg-gray-400 text-sm font-medium"
+              class="border border-gray-200 cursor-pointer text-center bg-gray-400 hover:bg-gray-600 transition"
               @click="selectAll(day)"
             >
               <font-awesome-icon
                 v-if="isAllDay(events)"
-                class="text-white text-xl"
+                class="text-gray-700 text-lg"
                 :icon="['fas', 'circle-check']"
               />
             </td>
-
             <td
               v-for="hour in 24"
               :key="hour"
               :class="[
-                'border w-4 h-8 cursor-pointer hover:bg-gray-300',
-                isSelected(events, hour * 60) ? 'bg-gray-500' : '',
+                'border border-gray-200 cursor-pointer transition',
+                'w-5 h-8 hover:bg-slate-200',
+                isSelected(events, hour * 60) ? 'bg-slate-400' : 'bg-white',
               ]"
               @click="selectCell(day, (hour - 1) * 60)"
               @mousedown="selectCell(day, (hour - 1) * 60)"
@@ -51,15 +56,15 @@
       </table>
     </div>
 
-    <div class="mt-4 flex gap-2">
+    <div class="justify-self-end mt-4 flex gap-3">
       <button
-        class="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
+        class="px-5 py-2 bg-slate-200 rounded-xl hover:bg-slate-300 transition"
         @click="clearSelection"
       >
         Clear
       </button>
       <button
-        class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        class="px-5 py-2 bg-slate-600 text-white rounded-xl shadow hover:bg-slate-700 transition"
         @click="saveChanges"
       >
         Save Changes
@@ -112,24 +117,24 @@ const isAllDay = (events: Interval[]) => {
 
 const selectCell = (day: WeekDay, time: number) => {
   if (selectedInterval.value?.day && selectedInterval.value.day !== day) {
+    selectedInterval.value = { day, start: time };
     return;
   }
 
   if (!selectedInterval.value?.start && selectedInterval.value?.start !== 0) {
     selectedInterval.value = { day, start: time };
-  } else {
-    if (selectedInterval.value.day === day) {
-      selectedInterval.value.end = time + 59;
-
-      const newInterval = {
-        bt: Math.min(selectedInterval.value.start, selectedInterval.value.end),
-        et: Math.max(selectedInterval.value.start, selectedInterval.value.end),
-      };
-      localDaysCopy.value[day].push(newInterval);
-    }
-
-    selectedInterval.value = null;
+    return;
   }
+
+  selectedInterval.value.end = time + 59;
+
+  const newInterval = {
+    bt: Math.min(selectedInterval.value.start!, selectedInterval.value.end!),
+    et: Math.max(selectedInterval.value.start!, selectedInterval.value.end!),
+  };
+  localDaysCopy.value[day].push(newInterval);
+
+  selectedInterval.value = null;
 };
 
 const selectAll = (day: WeekDay) => {
