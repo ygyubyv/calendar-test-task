@@ -45,11 +45,13 @@
               :class="[
                 'border border-gray-200 cursor-pointer transition',
                 'w-5 h-8 hover:bg-slate-200',
-                isSelected(events, hour * 60) ? 'bg-slate-400' : 'bg-white',
+                isSelected(localDaysCopy[day], (hour - 1) * 60)
+                  ? 'bg-slate-400'
+                  : 'bg-white',
               ]"
-              @click="selectCell(day, (hour - 1) * 60)"
-              @mousedown="selectCell(day, (hour - 1) * 60)"
-              @mouseup="selectCell(day, (hour - 1) * 60)"
+              @mousedown.prevent="onCellMouseDown(day, (hour - 1) * 60)"
+              @mouseenter.prevent="onCellMouseEnter(day, (hour - 1) * 60)"
+              @mouseup.prevent="onCellMouseUp(day, (hour - 1) * 60)"
             ></td>
           </tr>
         </tbody>
@@ -76,16 +78,10 @@
 <script setup lang="ts">
 import { ALL_DAY } from "@/constants";
 import type { Interval, WeekDay, WeekSchedule } from "@/types/calendar";
-import { ref } from "vue";
+import { ref, onMounted, onBeforeUnmount } from "vue";
 
 interface Props {
   days: WeekSchedule;
-}
-
-interface SelectedInterval {
-  day: WeekDay;
-  start?: number;
-  end?: number;
 }
 
 const props = defineProps<Props>();
@@ -94,10 +90,14 @@ const emit = defineEmits<{
 }>();
 
 const localDaysCopy = ref<WeekSchedule>(structuredClone(props.days));
-const selectedInterval = ref<SelectedInterval | null>(null);
+
+const isMouseDown = ref(false);
+const dragStart = ref<{ day: WeekDay; time: number } | null>(null);
+const dragCurrent = ref<{ day: WeekDay; time: number } | null>(null);
+const movedDuringDrag = ref(false);
 
 const isSelected = (events: Interval[], time: number) => {
-  return events.some((event) => time > event.bt && time - 2 < event.et);
+  return events.some((event) => time >= event.bt && time <= event.et);
 };
 
 const isAllDay = (events: Interval[]) => {
@@ -115,27 +115,161 @@ const isAllDay = (events: Interval[]) => {
   return lastEnd >= ALL_DAY;
 };
 
-const selectCell = (day: WeekDay, time: number) => {
-  if (selectedInterval.value?.day && selectedInterval.value.day !== day) {
-    selectedInterval.value = { day, start: time };
-    return;
+const getDayOrder = () => Object.keys(localDaysCopy.value) as WeekDay[];
+
+const dayIndex = (day: WeekDay) => getDayOrder().indexOf(day);
+
+const addInterval = (day: WeekDay, bt: number, et: number) => {
+  if (!localDaysCopy.value[day]) localDaysCopy.value[day] = [];
+
+  const arr = [...localDaysCopy.value[day], { bt, et }].sort(
+    (a, b) => a.bt - b.bt
+  );
+
+  const merged: Interval[] = [];
+  for (const iv of arr) {
+    if (!merged.length) merged.push({ ...iv });
+    else {
+      const last = merged[merged.length - 1];
+      if (iv.bt <= last.et + 1) {
+        last.et = Math.max(last.et, iv.et);
+      } else {
+        merged.push({ ...iv });
+      }
+    }
   }
 
-  if (!selectedInterval.value?.start && selectedInterval.value?.start !== 0) {
-    selectedInterval.value = { day, start: time };
-    return;
-  }
-
-  selectedInterval.value.end = time + 59;
-
-  const newInterval = {
-    bt: Math.min(selectedInterval.value.start!, selectedInterval.value.end!),
-    et: Math.max(selectedInterval.value.start!, selectedInterval.value.end!),
-  };
-  localDaysCopy.value[day].push(newInterval);
-
-  selectedInterval.value = null;
+  localDaysCopy.value[day] = merged;
 };
+
+const removeSingleMinute = (day: WeekDay, time: number) => {
+  const arr = localDaysCopy.value[day] ?? [];
+  const result: Interval[] = [];
+
+  for (const iv of arr) {
+    if (time < iv.bt || time > iv.et) {
+      result.push(iv);
+    } else {
+      if (iv.bt < time) {
+        result.push({ bt: iv.bt, et: time - 1 });
+      }
+      if (time < iv.et) {
+        result.push({ bt: time + 1, et: iv.et });
+      }
+    }
+  }
+
+  localDaysCopy.value[day] = result;
+  if (localDaysCopy.value[day].length) {
+    const arrSorted = [...localDaysCopy.value[day]].sort((a, b) => a.bt - b.bt);
+    const merged: Interval[] = [];
+    for (const iv of arrSorted) {
+      if (!merged.length) merged.push({ ...iv });
+      else {
+        const last = merged[merged.length - 1];
+        if (iv.bt <= last.et + 1) last.et = Math.max(last.et, iv.et);
+        else merged.push(iv);
+      }
+    }
+    localDaysCopy.value[day] = merged;
+  } else {
+    localDaysCopy.value[day] = [];
+  }
+};
+
+const commitRange = (
+  start: { day: WeekDay; time: number },
+  end: { day: WeekDay; time: number }
+) => {
+  const order = getDayOrder();
+  let si = dayIndex(start.day);
+  let ei = dayIndex(end.day);
+  if (si === -1 || ei === -1) return;
+
+  if (si > ei || (si === ei && start.time > end.time)) {
+    [si, ei] = [ei, si];
+    [start, end] = [end, start];
+  }
+
+  for (let idx = si; idx <= ei; idx++) {
+    const day = order[idx] as WeekDay;
+
+    if (si === ei) {
+      addInterval(
+        day,
+        Math.min(start.time, end.time),
+        Math.max(start.time, end.time) + 59
+      );
+    } else if (idx === si) {
+      addInterval(day, start.time, ALL_DAY);
+    } else if (idx === ei) {
+      addInterval(day, 0, end.time + 59);
+    } else {
+      addInterval(day, 0, ALL_DAY);
+    }
+  }
+};
+
+const onCellMouseDown = (day: WeekDay, time: number) => {
+  isMouseDown.value = true;
+  dragStart.value = { day, time };
+  dragCurrent.value = { day, time };
+  movedDuringDrag.value = false;
+};
+
+const onCellMouseEnter = (day: WeekDay, time: number) => {
+  if (!isMouseDown.value) return;
+  movedDuringDrag.value = true;
+  dragCurrent.value = { day, time };
+};
+
+const onCellMouseUp = (day: WeekDay, time: number) => {
+  if (!dragStart.value) {
+    isMouseDown.value = false;
+    dragCurrent.value = null;
+    return;
+  }
+
+  const start = dragStart.value;
+  const end = dragCurrent.value ?? { day, time };
+
+  if (
+    !movedDuringDrag.value &&
+    start.day === end.day &&
+    start.time === end.time
+  ) {
+    if (isSelected(localDaysCopy.value[start.day], start.time)) {
+      removeSingleMinute(start.day, start.time);
+    } else {
+      addInterval(start.day, start.time, start.time + 59);
+    }
+  } else {
+    commitRange(start, end);
+  }
+
+  isMouseDown.value = false;
+  dragStart.value = null;
+  dragCurrent.value = null;
+  movedDuringDrag.value = false;
+};
+
+const onGlobalMouseUp = () => {
+  if (isMouseDown.value && dragStart.value && dragCurrent.value) {
+    commitRange(dragStart.value, dragCurrent.value);
+  }
+  isMouseDown.value = false;
+  dragStart.value = null;
+  dragCurrent.value = null;
+  movedDuringDrag.value = false;
+};
+
+onMounted(() => {
+  window.addEventListener("mouseup", onGlobalMouseUp);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("mouseup", onGlobalMouseUp);
+});
 
 const selectAll = (day: WeekDay) => {
   localDaysCopy.value[day].length
